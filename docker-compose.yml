@@ -1,0 +1,113 @@
+version: '3.9'
+
+services:
+  order:
+    build:
+      dockerfile: .docker/app.Dockerfile
+      context: ./
+      args:
+        SERVICE_NAME: order
+    environment:
+      - HTTP_BIND=8080
+      - POSTGRES_DB=orders
+      - POSTGRES_USER=orders_user
+      - POSTGRES_PASSWORD=orders_password
+      - HOST_DB=db-order
+      - PORT_DB=5432
+      - KAFKA_ADDR=kafka:9092
+      - ORDER_CREATED_TOPIC=order_created_v1
+      - GOODS_CREATED_TOPIC=goods_created_v1
+      - GOODS_REJECTED_TOPIC=goods_rejected_v1
+    depends_on:
+      - db-order
+      - kafka
+    volumes:
+      - ./order:/app/order:delegated
+      - ./.docker/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: /entrypoint.sh
+    ports:
+      - "8080:8080"
+    networks:
+      - saga
+
+  db-order:
+    image: postgres:14
+    environment:
+      - POSTGRES_DB=orders
+      - POSTGRES_USER=orders_user
+      - POSTGRES_PASSWORD=orders_password
+    ports:
+      - "5441:5432"
+    volumes:
+      - data:/var/lib/postgresql
+    networks:
+      - saga
+
+  goods:
+    build:
+      dockerfile: .docker/app.Dockerfile
+      context: ./
+      args:
+        SERVICE_NAME: goods
+    environment:
+      - HTTP_BIND=8081
+      - POSTGRES_DB=goods
+      - POSTGRES_USER=goods_user
+      - POSTGRES_PASSWORD=goods_password
+      - HOST_DB=db-goods
+      - PORT_DB=5432
+      - KAFKA_ADDR=kafka:9092
+      - ORDER_CREATED_TOPIC=order_created_v1
+      - GOODS_CREATED_TOPIC=goods_created_v1
+      - GOODS_REJECTED_TOPIC=goods_rejected_v1
+    volumes:
+      - ./goods:/app/goods:delegated
+      - ./.docker/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: /entrypoint.sh
+    depends_on:
+      - db-goods
+      - kafka
+    ports:
+      - "8081:8081"
+    networks:
+      - saga
+
+  db-goods:
+    image: postgres:14
+    environment:
+      - POSTGRES_DB=goods
+      - POSTGRES_USER=goods_user
+      - POSTGRES_PASSWORD=goods_password
+    ports:
+      - "5442:5432"
+    volumes:
+      - data:/var/lib/postgresql
+    networks:
+      - saga
+
+  zookeeper-saga:
+    image: wurstmeister/zookeeper
+    container_name: zookeeper-saga
+    ports:
+      - '2181:2181'
+    networks:
+      - saga
+
+  kafka:
+    image: wurstmeister/kafka
+    depends_on:
+      - zookeeper-saga
+    ports:
+      - '9092:9092'
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: kafka
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-saga:2181
+      KAFKA_CREATE_TOPICS: order_created_v1:1:1,goods_created_v1:1:1,goods_rejected_v1:1:1
+    networks:
+      - saga
+
+volumes:
+  data:
+
+networks:
+  saga:
